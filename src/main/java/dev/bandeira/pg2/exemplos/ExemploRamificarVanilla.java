@@ -1,6 +1,9 @@
 package dev.bandeira.pg2.exemplos;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 import dev.bandeira.pg2.util.Filme;
@@ -35,6 +38,37 @@ public class ExemploRamificarVanilla {
 		 * 
 		 * 3. Imprimir a tabela de personagens/filmes (utilizando o método resultados)
 		 */
+
+		var personagensResponse = getAllPeople();
+		List<Filme> filmes = getFilmesMetadata(personagensResponse);
+		List<Personagem> personagens = getPersonagensListWithFilmesData(personagensResponse, filmes);
+		imprimir(personagens);
+
+	}
+	
+	private static List<Filme> getFilmesMetadata(ResultadosBusca<Personagem> personagensResponse) {
+		Set<Filme> uniqueFilmes = personagensResponse.results().stream().flatMap(personagem -> personagem.films().stream())
+				.collect(Collectors.toSet());
+		List<CompletableFuture<Filme>> filmesFutures = buildFilmesFutureList(uniqueFilmes);
+		return filmesFutures.stream().map(CompletableFuture::join).collect(Collectors.toList());
+		
+	}
+
+	private static List<CompletableFuture<Filme>> buildFilmesFutureList(Set<Filme> uniqueFilmes) {
+		return uniqueFilmes.stream()
+				.map(movie -> CompletableFuture.supplyAsync(() -> getFilmById(movie.id()))
+						.thenCompose(m -> CompletableFuture
+								.supplyAsync(() -> new Filme(movie.id(), m.title(), m.director(), m.releaseDate()))))
+				.collect(Collectors.toList());
+	}
+	
+	private static List<Personagem> getPersonagensListWithFilmesData(ResultadosBusca<Personagem> personagensResponse, List<Filme> filmes) {
+		return personagensResponse.results().stream().map(personagem -> {
+			var personagemFilmes = filmes.stream().filter(filme -> personagem.films().stream()
+					.map(pFilmes -> pFilmes.id()).collect(Collectors.toList()).contains(filme.id()))
+					.collect(Collectors.toList());
+			return personagem.comFilms(personagemFilmes);
+		}).collect(Collectors.toList());
 	}
 
 	private static ResultadosBusca<Personagem> getAllPeople() {
